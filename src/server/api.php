@@ -69,7 +69,8 @@ $MAX_AUTH_KEYS_PROVIDED_PER_SENSOR_QUERY = 1;
 // end sensor query authentication configuration
 
 // result limit, ~10 years of daily data
-$MAX_RESULTS = 3650;
+$MAX_RESULTS = 999999999;
+ini_set('memory_limit', '8G');
 
 // queries the `fluview` and `fluview_imputed` tables
 //   $epiweeks (required): array of epiweek values/ranges
@@ -937,7 +938,8 @@ function get_dengue_nowcast($locations, $epiweeks) {
 //   $lag (optional): number of time units between each time value and its issue
 //     overridden by $issues
 //     default: most recent issue
-function get_covidcast($source, $signals, $time_type, $geo_type, $time_values, $geo_values, $as_of, $issues, $lag) {
+//   $stream: whether to stream data on the fly (e.g. for a large dataset)
+function get_covidcast($source, $signals, $time_type, $geo_type, $time_values, $geo_values, $as_of, $issues, $lag, $stream) {
   // required for `mysqli_real_escape_string`
   global $dbh;
   $source = mysqli_real_escape_string($dbh, $source);
@@ -996,7 +998,7 @@ function get_covidcast($source, $signals, $time_type, $geo_type, $time_values, $
   $query = "SELECT {$fields} FROM {$table} {$subquery} WHERE {$conditions} AND ({$condition_version}) ORDER BY {$order}";
   // get the data from the database
   $epidata = array();
-  execute_query($query, $epidata, $fields_string, $fields_int, $fields_float);
+  execute_query($query, $epidata, $fields_string, $fields_int, $fields_float, $stream);
   // return the data
   return count($epidata) === 0 ? null : $epidata;
 }
@@ -1531,6 +1533,7 @@ if(database_connect()) {
       $lag = isset($_REQUEST['lag']) ? intval($_REQUEST['lag']) : null;
       $signals = extract_values(isset($_REQUEST['signals']) ? $_REQUEST['signals'] : $_REQUEST['signal'], 'string');
       $geo_values = isset($_REQUEST['geo_value']) ? $_REQUEST['geo_value'] : extract_values($_REQUEST['geo_values'], 'string');
+      $stream = isset($_REQUEST['format']) && $_REQUEST['format'] == "stream";
       // get the data
       $epidata = get_covidcast(
           $_REQUEST['data_source'],
@@ -1541,7 +1544,8 @@ if(database_connect()) {
           $geo_values,
           $as_of,
           $issues,
-          $lag);
+          $lag,
+          $stream);
       if(isset($_REQUEST['format']) && $_REQUEST['format']=="tree") {
         //organize results by signal
         $epi_tree = array();
@@ -1556,7 +1560,9 @@ if(database_connect()) {
         }
         $epidata = array($epi_tree);
       }
-      store_result($data, $epidata);
+      if (!$stream) {
+        store_result($data, $epidata);
+      }
     }
   } else if($source === 'covidcast_meta') {
     // get the metadata
@@ -1575,6 +1581,8 @@ if(isset($_REQUEST['format']) && $_REQUEST['format'] == "csv") {
   send_csv($data);
 } else if(isset($_REQUEST['format']) && $_REQUEST['format'] == "json") {
   send_json($data);
+} else if(isset($_REQUEST['format']) && $_REQUEST['format'] == "stream") {
+  // data was already sent
 } else {
   // send the response as a json object
   header('Content-Type: application/json');

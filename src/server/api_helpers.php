@@ -153,11 +153,12 @@ function filter_strings($field, $values) {
 //   $fields_string (optional): an array of names of string fields
 //   $fields_int (optional): an array of names of integer fields
 //   $fields_float (optional): an array of names of float fields
-function execute_query($query, &$epidata, $fields_string, $fields_int, $fields_float) {
+//   $stream (optional): whether to stream results (otherwise, populate `$epidata` object)
+function execute_query($query, &$epidata, $fields_string, $fields_int, $fields_float, $stream) {
   global $dbh;
   global $MAX_RESULTS;
   error_log($query);
-  $result = mysqli_query($dbh, $query . " LIMIT {$MAX_RESULTS}");
+  $result = mysqli_query($dbh, $query . " LIMIT {$MAX_RESULTS}", MYSQLI_USE_RESULT);
   if (!$result) {
     error_log("Bad query: ".$query);
     error_log(mysqli_error($dbh));
@@ -177,6 +178,13 @@ function execute_query($query, &$epidata, $fields_string, $fields_int, $fields_f
       $fields_float = array_intersect($fields_float, $fields);
     }
   }
+
+  if ($stream) {
+    set_time_limit(300);
+    header('Content-Type: application/json');
+    echo '{"format":"stream","result":1,"message":"success","epidata":[';
+  }
+  $count = 0;
 
   while($row = mysqli_fetch_array($result)) {
     if(count($epidata) < $MAX_RESULTS) {
@@ -204,8 +212,20 @@ function execute_query($query, &$epidata, $fields_string, $fields_int, $fields_f
           }
         }
       }
-      array_push($epidata, $values);
+      if ($stream) {
+        if ($count > 0) {
+          echo ',';
+        }
+        echo json_encode($values);
+        $count += 1;
+      } else {
+        array_push($epidata, $values);
+      }
     }
+  }
+
+  if ($stream) {
+    echo '],"count":' . $count . '}';
   }
 }
 
